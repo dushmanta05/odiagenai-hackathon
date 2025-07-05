@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { Mic, MicOff, Send, ArrowLeft, Moon, Sun } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export default function ChatPage() {
   const [darkMode, setDarkMode] = useState(false);
@@ -11,6 +14,17 @@ export default function ChatPage() {
   const [isListening, setIsListening] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioStream, setAudioStream] = useState(null);
+  const [audioContext, setAudioContext] = useState(null);
+  const [analyser, setAnalyser] = useState(null);
+  const [frequencyData, setFrequencyData] = useState(new Uint8Array(0));
+  const [animationId, setAnimationId] = useState(null);
+  const [selectedLanguage, setSelectedLanguage] = useState('odia');
+  const [apiResponse, setApiResponse] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     if (darkMode) {
@@ -22,12 +36,13 @@ export default function ChatPage() {
 
   const handleSendMessage = () => {
     if (message.trim()) {
-      setMessages([...messages, { text: message, sender: 'user' }]);
+      setMessages([...messages, { id: Date.now(), text: message, sender: 'user' }]);
       setMessage('');
       setTimeout(() => {
         setMessages((prev) => [
           ...prev,
           {
+            id: Date.now() + 1,
             text: "I'll help you create that document. Please provide more details about what you need.",
             sender: 'ai',
           },
@@ -38,21 +53,153 @@ export default function ChatPage() {
 
   const handleVoiceClick = () => {
     setShowVoiceModal(true);
+    setApiResponse(null);
   };
 
   const handleStartListening = () => {
-    setIsListening(true);
-    setTimeout(() => {
-      setIsListening(false);
-      setShowVoiceModal(false);
-      setMessage('I need to create a professional resume for a software developer position');
-    }, 3000);
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
   };
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setAudioStream(stream);
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyserNode = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyserNode);
+
+      analyserNode.fftSize = 256;
+      const bufferLength = analyserNode.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      setAudioContext(audioCtx);
+      setAnalyser(analyserNode);
+      setFrequencyData(dataArray);
+
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/wav' });
+        setAudioBlob(blob);
+        sendAudioToAPI(blob);
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+
+      visualizeFrequency(analyserNode, dataArray);
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      alert('Please allow microphone access to record audio.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    if (audioStream) {
+      for (const track of audioStream.getTracks()) {
+        track.stop();
+      }
+    }
+
+    if (audioContext) {
+      audioContext.close();
+    }
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+    setIsRecording(false);
+    setAudioStream(null);
+    setAudioContext(null);
+    setAnalyser(null);
+  };
+
+  const visualizeFrequency = (analyserNode, dataArray) => {
+    const animate = () => {
+      analyserNode.getByteFrequencyData(dataArray);
+      setFrequencyData(new Uint8Array(dataArray));
+      if (isRecording) {
+        setAnimationId(requestAnimationFrame(animate));
+      }
+    };
+    animate();
+  };
+
+  const FrequencyVisualizer = () => {
+    const maxHeight = 40;
+    const barCount = 12;
+    const barWidth = 3;
+    const barSpacing = 2;
+
+    return (
+      <div className='flex items-end justify-center space-x-1' style={{ height: maxHeight }}>
+        {Array.from({ length: barCount }).map((_, i) => {
+          const dataIndex = Math.floor((i / barCount) * frequencyData.length);
+          const height = Math.max(2, (frequencyData[dataIndex] / 255) * maxHeight);
+
+          return (
+            <motion.div
+              key={`bar-${dataIndex}`}
+              className='bg-indigo-500 rounded-full'
+              style={{
+                width: barWidth,
+                height: height,
+              }}
+              animate={{
+                height: height,
+              }}
+              transition={{
+                duration: 0.1,
+                ease: 'easeOut',
+              }}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
+  const sendAudioToAPI = async (audioBlob) => {
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.wav');
+
+      const response = await axios.post(
+        'http://localhost:3001/generate/application-form',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+
+      setApiResponse(response.data);
+      setShowVoiceModal(false);
+    } catch (error) {
+      console.error('Error sending audio to API:', error);
+      alert('Error processing audio. Please try again.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -131,27 +278,80 @@ export default function ChatPage() {
                 </p>
               </div>
             ) : (
-              messages.map((msg, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl px-4 py-2 rounded-lg ${
-                      msg.sender === 'user'
-                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-                        : darkMode
-                        ? 'bg-gray-700 text-gray-100'
-                        : 'bg-gray-200 text-gray-900'
-                    }`}
+              <>
+                {messages.map((msg) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
-                    <p className='text-sm sm:text-base'>{msg.text}</p>
+                    <div
+                      className={`max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl px-4 py-2 rounded-lg ${
+                        msg.sender === 'user'
+                          ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                          : darkMode
+                          ? 'bg-gray-700 text-gray-100'
+                          : 'bg-gray-200 text-gray-900'
+                      }`}
+                    >
+                      <p className='text-sm sm:text-base'>{msg.text}</p>
+                    </div>
+                  </motion.div>
+                ))}
+
+                {/* API Response Display */}
+                {apiResponse && (
+                  <div className='mt-6 border-t pt-6'>
+                    <div className='flex items-center justify-between mb-4'>
+                      <h3
+                        className={`text-lg font-semibold ${
+                          darkMode ? 'text-white' : 'text-gray-900'
+                        }`}
+                      >
+                        Generated Content
+                      </h3>
+                      <div className='flex rounded-lg overflow-hidden border'>
+                        <button
+                          type='button'
+                          onClick={() => setSelectedLanguage('odia')}
+                          className={`px-4 py-2 text-sm font-medium transition-colors ${
+                            selectedLanguage === 'odia'
+                              ? 'bg-indigo-600 text-white'
+                              : darkMode
+                              ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          Odia
+                        </button>
+                        <button
+                          type='button'
+                          onClick={() => setSelectedLanguage('english')}
+                          className={`px-4 py-2 text-sm font-medium transition-colors ${
+                            selectedLanguage === 'english'
+                              ? 'bg-indigo-600 text-white'
+                              : darkMode
+                              ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          English
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                      <div className={`prose max-w-none ${darkMode ? 'prose-invert' : ''}`}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedLanguage === 'odia' ? apiResponse.odia : apiResponse.english}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
                   </div>
-                </motion.div>
-              ))
+                )}
+              </>
             )}
           </div>
         </div>
@@ -243,33 +443,30 @@ export default function ChatPage() {
                 <div className='mb-6'>
                   <div
                     className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-4 ${
-                      isListening
+                      isRecording
                         ? 'bg-red-100 dark:bg-red-900'
                         : 'bg-indigo-100 dark:bg-indigo-900'
                     }`}
                   >
-                    <motion.div
-                      animate={isListening ? { scale: [1, 1.2, 1] } : {}}
-                      transition={{ duration: 1, repeat: Infinity }}
-                    >
-                      {isListening ? (
-                        <MicOff className='w-10 h-10 text-red-600' />
-                      ) : (
-                        <Mic className='w-10 h-10 text-indigo-600' />
-                      )}
-                    </motion.div>
+                    {isRecording ? (
+                      <FrequencyVisualizer />
+                    ) : (
+                      <Mic className='w-10 h-10 text-indigo-600' />
+                    )}
                   </div>
                   <h3
                     className={`text-xl font-bold mb-2 ${
                       darkMode ? 'text-white' : 'text-gray-900'
                     }`}
                   >
-                    {isListening ? 'Listening...' : 'Voice Input'}
+                    {isRecording ? 'Recording...' : isProcessing ? 'Processing...' : 'Voice Input'}
                   </h3>
                   <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {isListening
-                      ? "Speak now, I'm listening to your request"
-                      : 'Click to start speaking in English or Odia'}
+                    {isRecording
+                      ? 'Recording your voice. Click Stop when finished.'
+                      : isProcessing
+                      ? 'Processing your audio...'
+                      : 'Click Start to begin recording in English or Odia'}
                   </p>
                 </div>
 
@@ -277,8 +474,11 @@ export default function ChatPage() {
                   <button
                     type='button'
                     onClick={() => setShowVoiceModal(false)}
+                    disabled={isRecording || isProcessing}
                     className={`flex-1 px-4 py-2 rounded-lg transition-colors duration-200 ${
-                      darkMode
+                      isRecording || isProcessing
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : darkMode
                         ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
                         : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
                     }`}
@@ -288,14 +488,20 @@ export default function ChatPage() {
                   <button
                     type='button'
                     onClick={handleStartListening}
-                    disabled={isListening}
+                    disabled={isProcessing}
                     className={`flex-1 px-4 py-2 rounded-lg transition-colors duration-200 ${
-                      isListening
+                      isProcessing
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : isRecording
                         ? 'bg-red-600 hover:bg-red-700 text-white'
                         : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white'
                     }`}
                   >
-                    {isListening ? 'Stop' : 'Start Speaking'}
+                    {isProcessing
+                      ? 'Processing...'
+                      : isRecording
+                      ? 'Stop Recording'
+                      : 'Start Recording'}
                   </button>
                 </div>
               </div>
