@@ -1,5 +1,6 @@
 import { generateContent, generateStructuredContent } from '../services/gemini.js';
 import { transcribeAudio } from '../services/transcribe.js';
+import { textToSpeech } from '../services/tts.js';
 import { buildSystemPrompt } from '../utils/prompt.js';
 import { bilingualApplicationSchema } from '../utils/responseSchema.js';
 
@@ -77,4 +78,32 @@ const generateApplicationFromTranscription = async (req, res) => {
   }
 };
 
-export { generateTextContent, transcribeAudioFile, generateApplicationFromTranscription };
+const convertTextToSpeech = async (req, res) => {
+  try {
+    const text = 'ଜୁଲାଇ ପାଞ୍ଚ ତାରିଖରେ ରଥଯାତ୍ରା ପାଇଁ ଗୋଟେ ଦରକାର।';
+
+    const speechResult = await textToSpeech(text);
+
+    if (!speechResult?.success) {
+      throw new Error(speechResult?.error || 'Something went wrong! Please try again later.');
+    }
+
+    res.json({
+      success: true,
+      message: 'Text converted to speech successfully.',
+      data: speechResult?.data,
+    });
+  } catch (error) {
+    console.error(error);
+    res
+      .status(500)
+      .json({ success: false, message: 'Something went wrong!', error: error?.message });
+  }
+};
+
+export {
+  generateTextContent,
+  transcribeAudioFile,
+  generateApplicationFromTranscription,
+  convertTextToSpeech,
+};

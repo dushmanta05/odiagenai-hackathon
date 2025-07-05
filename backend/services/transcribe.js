@@ -2,14 +2,13 @@ import FormData from 'form-data';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import axios from 'axios';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const transcribeAudio = async () => {
   try {
-    const axios = await import('axios');
-
     const audioPath = path.resolve(__dirname, '../temp/audio.mp3');
 
     if (!fs.existsSync(audioPath)) {
@@ -30,15 +29,11 @@ export const transcribeAudio = async () => {
 
     return { success: true, data: response.data };
   } catch (error) {
-    console.error('Full error details:', {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data,
-    });
-
+    console.error('Error:', error);
     return {
       success: false,
-      error: error.response?.data?.message || error.message || 'Transcription failed.',
+      message: 'Speech-to-text conversion failed.',
+      error: error.response?.data?.message || error.message,
     };
   }
 };
