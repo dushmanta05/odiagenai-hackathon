@@ -1,6 +1,7 @@
-import { generateContent } from '../services/gemini.js';
+import { generateContent, generateStructuredContent } from '../services/gemini.js';
 import { transcribeAudio } from '../services/transcribe.js';
 import { buildSystemPrompt } from '../utils/prompt.js';
+import { bilingualApplicationSchema } from '../utils/responseSchema.js';
 
 const generateTextContent = async (req, res) => {
   try {
@@ -37,7 +38,6 @@ const transcribeAudioFile = async (req, res) => {
 
 const generateApplicationFromTranscription = async (req, res) => {
   try {
-    const outputLang = 'odia';
     const name = 'Dushmanta';
     const transcriptionResult = await transcribeAudio();
     if (!transcriptionResult.success) {
@@ -53,13 +53,20 @@ const generateApplicationFromTranscription = async (req, res) => {
       });
     }
 
-    const prompt = buildSystemPrompt(transcriptText, outputLang, name);
-    const response = await generateContent(prompt);
-    const applicationText = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const prompt = buildSystemPrompt(transcriptText, name);
+    const responseSchema = bilingualApplicationSchema;
+    const response = await generateStructuredContent(prompt, responseSchema);
+
+    if (!response.success) {
+      return res.status(500).json({
+        success: false,
+        message: response.error || 'Something went wrong! Please try again later.',
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      data: applicationText.trim(),
+      data: response?.data,
     });
   } catch (err) {
     console.error('Error:', err);
