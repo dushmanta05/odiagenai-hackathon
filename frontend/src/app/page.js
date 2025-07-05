@@ -273,18 +273,20 @@ export default function Home() {
             </p>
 
             <div className='pt-4 sm:pt-8'>
-              <motion.button
-                type='button'
-                className='bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-lg sm:text-xl px-8 sm:px-12 py-3 sm:py-4 rounded-full shadow-lg'
-                whileHover={{
-                  scale: 1.05,
-                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-                }}
-                whileTap={{ scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-              >
-                Get Started
-              </motion.button>
+              <Link href='/chat'>
+                <motion.button
+                  type='button'
+                  className='bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-lg sm:text-xl px-8 sm:px-12 py-3 sm:py-4 rounded-full shadow-lg'
+                  whileHover={{
+                    scale: 1.05,
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                  }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  Get Started
+                </motion.button>
+              </Link>
             </div>
           </div>
         </div>
